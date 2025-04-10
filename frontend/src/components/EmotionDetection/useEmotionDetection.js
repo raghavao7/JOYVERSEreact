@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import * as mpFaceMesh from '@mediapipe/face_mesh';
 import { Camera } from '@mediapipe/camera_utils';
 
-const useEmotionDetection = (videoRef, canvasRef, emotionDisplayRef, isRunning) => {
+const useEmotionDetection = (videoRef, canvasRef, emotionDisplayRef, isRunning, setEmotion) => {
   useEffect(() => {
     if (!isRunning || !videoRef.current || !canvasRef.current) return;
 
@@ -12,7 +12,7 @@ const useEmotionDetection = (videoRef, canvasRef, emotionDisplayRef, isRunning) 
 
     faceMesh.setOptions({
       maxNumFaces: 1,
-      refineLandmarks: true,
+      refineLandmarks: false, // Changed to false to get 468 landmarks
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
@@ -23,10 +23,8 @@ const useEmotionDetection = (videoRef, canvasRef, emotionDisplayRef, isRunning) 
 
       if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
-        console.log("Raw Landmarks in Hook:", landmarks); // <----- ADD THIS LINE
         const flatLandmarks = landmarks.flatMap(pt => [pt.x, pt.y, pt.z]);
-        console.log("Flat Landmarks Sent:", flatLandmarks); // <----- ADD THIS LINE
-        console.log("Length of Flat Landmarks:", flatLandmarks.length); // <----- ADD THIS LINE
+        console.log(`Sending landmarks length: ${flatLandmarks.length}`); // Debug log
 
         try {
           const response = await fetch('http://localhost:5000/detect_emotion', {
@@ -36,9 +34,18 @@ const useEmotionDetection = (videoRef, canvasRef, emotionDisplayRef, isRunning) 
           });
 
           const data = await response.json();
-          emotionDisplayRef.current.innerText = `Emotion: ${data.emotion || 'N/A'}`;
+          if (data.emotion) {
+            emotionDisplayRef.current.innerText = `Emotion: ${data.emotion}`;
+            setEmotion(data.emotion);
+          } else {
+            emotionDisplayRef.current.innerText = `Emotion: ${data.error || 'N/A'}`;
+            setEmotion(null);
+            console.error('Server response:', data); // Log error details
+          }
         } catch (error) {
           console.error('Emotion detection failed:', error);
+          emotionDisplayRef.current.innerText = 'Emotion: Error';
+          setEmotion(null);
         }
       }
     });
@@ -56,7 +63,7 @@ const useEmotionDetection = (videoRef, canvasRef, emotionDisplayRef, isRunning) 
     return () => {
       camera.stop();
     };
-  }, [isRunning, videoRef, canvasRef, emotionDisplayRef]);
+  }, [isRunning, videoRef, canvasRef, emotionDisplayRef, setEmotion]);
 };
 
 export default useEmotionDetection;

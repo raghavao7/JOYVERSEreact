@@ -19,12 +19,13 @@ const Game = () => {
   const [dropZones, setDropZones] = useState([]);
   const [score, setScore] = useState(0);
   const [feedback, setFeedback] = useState(null);
+  const [emotion, setEmotion] = useState(null);
 
-  const videoRef = useRef(null); // webcam
+  const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const emotionDisplayRef = useRef(null);
 
-  useEmotionDetection(videoRef, canvasRef, emotionDisplayRef, gameStarted);
+  useEmotionDetection(videoRef, canvasRef, emotionDisplayRef, gameStarted, setEmotion);
 
   const words = [
     { correct: 'dog', jumbled: 'gdo', image: dogImage },
@@ -34,6 +35,17 @@ const Game = () => {
     { correct: 'monkey', jumbled: 'mkyoen', image: monkeyImage },
     { correct: 'horse', jumbled: 'soehr', image: horseImage },
   ];
+
+  // Emotion to background color mapping (dyslexia-friendly)
+  const emotionColors = {
+    happy: 'rgba(255, 215, 0, 0.5)',    // Gold, semi-transparent
+    sad: 'rgba(135, 206, 235, 0.5)',   // Sky Blue
+    angry: 'rgba(255, 69, 0, 0.5)',     // Orange Red
+    surprise: 'rgba(152, 251, 152, 0.5)', // Pale Green
+    fear: 'rgba(221, 160, 221, 0.5)',   // Plum
+    disgust: 'rgba(176, 196, 222, 0.5)', // Light Steel Blue
+    neutral: 'rgba(245, 245, 245, 0.5)', // Whitesmoke
+  };
 
   useEffect(() => {
     setShuffledWords([...words].sort(() => Math.random() - 0.5));
@@ -90,13 +102,29 @@ const Game = () => {
 
   return (
     <div className="game-container">
-      {/* 🎥 Background video */}
+      {/* Background Video */}
       <video autoPlay loop muted playsInline className="background-video">
         <source src={videoFile} type="video/mp4" />
         Your browser does not support the video tag.
       </video>
 
-      {/* 🎥 Hidden webcam feed */}
+      {/* Emotion Overlay */}
+      {emotion && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: emotionColors[emotion.toLowerCase()],
+            zIndex: 0, // Above video, below content
+            transition: 'background-color 0.5s ease',
+          }}
+        />
+      )}
+
+      {/* Hidden Webcam Feed */}
       <video
         ref={videoRef}
         style={{ display: 'none' }}
@@ -107,21 +135,21 @@ const Game = () => {
         height="480"
       />
 
-      {/* 🧠 Face detection canvas */}
+      {/* Face Detection Canvas */}
       <canvas
         ref={canvasRef}
         style={{ position: 'absolute', top: 0, left: 0, zIndex: 1 }}
         width="640"
         height="480"
-      ></canvas>
+      />
 
-      {/* 🧠 Emotion display */}
+      {/* Emotion Display */}
       <div
         ref={emotionDisplayRef}
         style={{ position: 'absolute', top: '10px', left: '10px', color: 'white', zIndex: 2 }}
-      ></div>
+      />
 
-      {/* 🎮 Game content */}
+      {/* Game Content */}
       <div className="content">
         {!gameStarted ? (
           <>
@@ -133,7 +161,9 @@ const Game = () => {
         ) : !gameCompleted ? (
           <div className="game-content">
             <h1>What is this animal?</h1>
-            {currentWord && <img src={currentWord.image} alt="Animal" className="animal-image" />}
+            <div className="animal-container">
+              {currentWord && <img src={currentWord.image} alt="Animal" className="animal-image" />}
+            </div>
 
             <div className="letters-container">
               {letters.map((letter, index) => (

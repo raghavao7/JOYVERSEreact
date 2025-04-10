@@ -97,7 +97,6 @@ body, html {
   object-fit: contain; /* Ensures the entire image fits without cropping */
 }
 
-
 /* 🔥 Improved Drag and Drop Styles */
 .letters-container, .dropzones-container {
   display: flex;
