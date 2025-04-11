@@ -1,100 +1,148 @@
-# train_model.py
+import pandas as pd
 import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-import pickle
-import os
+from sklearn.preprocessing import LabelEncoder
+import os  # Added for directory handling
 
-# Number of facial landmarks (from MediaPipe Face Mesh)
-NUM_LANDMARKS = 468
-COORDS_PER_LANDMARK = 3
-LANDMARK_DIM = NUM_LANDMARKS * COORDS_PER_LANDMARK
+class EmotionTransformer(nn.Module):
+    def __init__(self, input_dim, hidden_dim, n_layers, n_heads, dropout, n_classes):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=n_heads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        self.fc = nn.Linear(hidden_dim, n_classes)
+        self.dropout = nn.Dropout(dropout)
 
-def generate_synthetic_landmarks(expression="neutral"):
-    """Generates a synthetic landmark array for a given expression."""
-    landmarks = np.random.rand(NUM_LANDMARKS, COORDS_PER_LANDMARK) * 0.5 + 0.25 # Center around 0.25-0.75
+    def forward(self, x):
+        x = self.input_proj(x)
+        x = x.unsqueeze(1)
+        x = self.transformer(x)
+        x = x.squeeze(1)
+        x = self.dropout(x)
+        x = self.fc(x)
+        return x
 
-    if expression == "happy":
-        # Example: Slightly widen mouth (landmarks around index 308, 78)
-        mouth_width_scale = 1.1
-        center_mouth_x = np.mean([landmarks[308, 0], landmarks[78, 0]])
-        landmarks[308, 0] = (landmarks[308, 0] - center_mouth_x) * mouth_width_scale + center_mouth_x
-        landmarks[78, 0] = (landmarks[78, 0] - center_mouth_x) * mouth_width_scale + center_mouth_x
-        # Example: Slight upward curve of the mouth (y-coordinates)
-        mouth_curve = 0.02
-        landmarks[range(49, 60), 1] -= mouth_curve
-        landmarks[range(175, 186), 1] -= mouth_curve
-    elif expression == "sad":
-        # Example: Slightly downturned mouth
-        mouth_down_curve = 0.03
-        landmarks[range(49, 60), 1] += mouth_down_curve
-        landmarks[range(175, 186), 1] += mouth_down_curve
-        # Example: Inner eyebrows slightly raised (landmarks around index 22, 23)
-        eyebrow_lift = 0.02
-        landmarks[22, 1] -= eyebrow_lift
-        landmarks[23, 1] -= eyebrow_lift
-    elif expression == "surprise":
-        # Example: Widened eyes (landmarks around 159, 386)
-        eye_open_scale = 1.05
-        center_left_eye_y = np.mean([landmarks[159, 1], landmarks[145, 1]])
-        landmarks[159, 1] = (landmarks[159, 1] - center_left_eye_y) * eye_open_scale + center_left_eye_y
-        landmarks[145, 1] = (landmarks[145, 1] - center_left_eye_y) * eye_open_scale + center_left_eye_y
-        center_right_eye_y = np.mean([landmarks[386, 1], landmarks[374, 1]])
-        landmarks[386, 1] = (landmarks[386, 1] - center_right_eye_y) * eye_open_scale + center_right_eye_y
-        landmarks[374, 1] = (landmarks[374, 1] - center_right_eye_y) * eye_open_scale + center_right_eye_y
-        # Example: Slightly open mouth
-        mouth_open = 0.01
-        landmarks[range(61, 68), 1] += mouth_open
-        landmarks[range(291, 298), 1] += mouth_open
+class EmotionDataset(Dataset):
+    def __init__(self, features, labels):
+        self.features = torch.FloatTensor(features)
+        self.labels = torch.LongTensor(labels)
 
-    return landmarks.flatten().tolist()
+    def __len__(self):
+        return len(self.labels)
 
-class ExpressionModel:
-    def __init__(self):
-        self.model = LogisticRegression(random_state=42,max_iter=1000)
+    def __getitem__(self, idx):
+        return self.features[idx], self.labels[idx]
 
-    def train(self, landmark_data, labels):
-        X = np.array(landmark_data)
-        y = np.array(labels)
-        self.model.fit(X, y)
+def load_data(file_path):
+    df = pd.read_excel(file_path)
 
-    def predict(self, landmark):
-        landmark_array = np.array([landmark])
-        prediction = self.model.predict(landmark_array)
-        return prediction[0]
+    # Debug: Print unique emotions
+    unique_emotions = df['Expression'].unique()
+    print(f"Unique emotions found: {unique_emotions}")
+    print(f"Number of unique emotions: {len(unique_emotions)}")
 
-if __name__ == "__main__":
-    # 1. Generate Structured Synthetic Data
-    num_samples_per_expression = 50
-    expressions = ["neutral", "happy", "sad", "surprise"]
-    synthetic_landmark_data = []
-    synthetic_labels = []
+    label_encoder = LabelEncoder()
+    labels = label_encoder.fit_transform(df['Expression'])
 
-    for expression in expressions:
-        for _ in range(num_samples_per_expression):
-            synthetic_landmark_data.append(generate_synthetic_landmarks(expression))
-            synthetic_labels.append(expression)
+    # Debug: Print label mapping
+    print(f"Label mapping: {dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))}")
+    print(f"Encoded labels range: {labels.min()} to {labels.max()}")
+
+    feature_cols = [col for col in df.columns if col not in ['Expression', 'FileName']]
+    features = df[feature_cols].values
+
+    return features, labels, label_encoder
+
+def train_model():
+    # Hyperparameters
+    input_dim = 468 * 3  # 468 landmarks with x, y, z coordinates
+    hidden_dim = 256
+    n_layers = 2
+    n_heads = 8
+    dropout = 0.1
+    batch_size = 32
+    epochs = 50
+    learning_rate = 0.001
+
+    # Load data
+    features, labels, label_encoder = load_data('backend\JoyVerseDataSet_Filled.xlsx')
+
+    # Verify number of classes
+    n_classes = len(label_encoder.classes_)
+    print(f"Number of classes for model: {n_classes}")
 
     # Split data
-    X_train, X_test, y_train, y_test = train_test_split(synthetic_landmark_data, synthetic_labels, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(
+        features, labels, test_size=0.2, random_state=42
+    )
 
-    # 2. Initialize and Train the Model
-    expression_model = ExpressionModel()
-    expression_model.train(X_train, y_train)
+    # Create datasets and dataloaders
+    train_dataset = EmotionDataset(X_train, y_train)
+    test_dataset = EmotionDataset(X_test, y_test)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-    # 3. Save the Trained Model
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    model_dir = os.path.join(os.path.dirname(project_root), 'models')
-    os.makedirs(model_dir, exist_ok=True)
-    model_path = os.path.join(model_dir, 'expression_model.pkl')
+    # Initialize model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = EmotionTransformer(
+        input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        dropout=dropout,
+        n_classes=n_classes
+    ).to(device)
 
-    with open(model_path, 'wb') as file:
-        pickle.dump(expression_model, file)
+    # Training setup
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    print(f"Trained model saved to: {model_path}")
+    # Ensure backend directory exists
+    os.makedirs('backend', exist_ok=True)
 
-    # --- Basic Evaluation on Synthetic Data ---
-    y_pred = [expression_model.predict(landmark) for landmark in X_test]
-    accuracy = accuracy_score(y_test, y_pred)
-    print(f"\nAccuracy on Synthetic Test Data: {accuracy:.2f}")
+    # Training loop
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        for batch_features, batch_labels in train_loader:
+            batch_features = batch_features.to(device)
+            batch_labels = batch_labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(batch_features)
+            loss = criterion(outputs, batch_labels)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+        # Validation
+        model.eval()
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch_features, batch_labels in test_loader:
+                batch_features = batch_features.to(device)
+                batch_labels = batch_labels.to(device)
+                outputs = model(batch_features)
+                _, predicted = torch.max(outputs.data, 1)
+                total += batch_labels.size(0)
+                correct += (predicted == batch_labels).sum().item()
+
+        print(f'Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(train_loader):.4f}, '
+              f'Accuracy: {100 * correct/total:.2f}%')
+
+    # Save the model and label encoder in the backend directory
+    torch.save(model.state_dict(), 'backend/emotion_model.pth')
+    np.save('backend/label_encoder.npy', label_encoder.classes_)
+
+if __name__ == '__main__':
+    train_model()

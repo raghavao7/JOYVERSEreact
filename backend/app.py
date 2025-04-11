@@ -1,73 +1,93 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+import sys
+import os
 import numpy as np
 import torch
 import torch.nn as nn
-from train import EmotionTransformer  # Ensure this module exists
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
+# 🔧 Add project root to Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# 🐍 Debug print for working directory
+print("[DEBUG] Current working directory:", os.getcwd())
+
+# ✅ Import the EmotionTransformer class
+from models.train import EmotionTransformer
+
+# 🚀 Initialize Flask app
 app = Flask(__name__)
 CORS(app)
 
-# Load the trained model
+# 📦 Load the trained model
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = EmotionTransformer(
-    input_dim=468 * 3,  # 468 landmarks * 3 coordinates (x, y, z)
+    input_dim=468 * 3,
     hidden_dim=256,
     n_layers=2,
     n_heads=8,
     dropout=0.1,
-    n_classes=7  # Matches 7 emotions: e.g., happy, sad, angry, etc.
+    n_classes=7
 )
 
+# 🛣 Get absolute path to model and label encoder
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+model_path = os.path.join(project_root, 'models', 'emotion_model.pth')
+encoder_path = os.path.join(project_root, 'backend', 'label_encoder.npy')
+
+# ✅ Load model weights
 try:
-    # Use forward slashes or raw string to fix path issues
-    model.load_state_dict(torch.load('backend/emotion_model.pth', map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     model.to(device)
-    print("Model loaded successfully!")
+    print(f"✅ Model loaded successfully from: {model_path}")
 except Exception as e:
-    print(f"Error loading model: {e}")
+    print(f"❌ Error loading model: {e}")
 
+# ✅ Load label encoder
 try:
-    # Load label encoder as a list/array, not dict
-    label_encoder = np.load('backend/label_encoder.npy', allow_pickle=True)
-    print(f"Label encoder loaded successfully! Classes: {list(label_encoder)}")
+    label_encoder = np.load(encoder_path, allow_pickle=True)
+    print(f"✅ Label encoder loaded successfully: {list(label_encoder)}")
 except Exception as e:
-    print(f"Error loading label encoder: {e}")
+    print(f"❌ Error loading label encoder: {e}")
     label_encoder = None
 
-@app.route('/detect_emotion', methods=['POST'])  # Match the frontend endpoint
-def predict_emotion():
+# 🔍 Emotion detection endpoint
+@app.route('/detect_emotion', methods=['POST'])
+def detect_emotion():
     data = request.get_json()
     landmarks = data.get('landmarks', [])
-    print(f"Received landmarks data length: {len(landmarks)}")
-    print(f"Received landmarks data (first 10): {landmarks[:10]}")
+
+    print(f"📥 Received landmarks length: {len(landmarks)}")
+    print(f"🔍 Sample landmarks: {landmarks[:10]}")
 
     if not landmarks or len(landmarks) != 468 * 3:
-        return jsonify({'error': f'Invalid landmarks data: expected {468*3}, got {len(landmarks)}'}), 400
+        return jsonify({'error': f'Invalid landmarks data: expected {468 * 3}, got {len(landmarks)}'}), 400
 
     try:
         features = np.array(landmarks, dtype=np.float32)
         features_tensor = torch.FloatTensor(features).unsqueeze(0).to(device)
     except Exception as e:
-        print(f"Error converting landmarks to tensor: {e}")
+        print(f"🔥 Error converting landmarks to tensor: {e}")
         return jsonify({'error': 'Error processing landmarks data'}), 400
 
     try:
         with torch.no_grad():
             output = model(features_tensor)
-            print(f"Model output: {output}")
             _, predicted = torch.max(output, 1)
-            print(f"Predicted index: {predicted.item()}")
+            print(f"🎯 Model output: {output}")
+            print(f"📊 Predicted index: {predicted.item()}")
+
             if label_encoder is not None:
-                emotion = label_encoder[predicted.item()]  # Map index to emotion string
-                print(f"Predicted emotion: {emotion}")
+                emotion = label_encoder[predicted.item()]
+                print(f"😊 Predicted emotion: {emotion}")
                 return jsonify({'emotion': emotion})
             else:
                 return jsonify({'error': 'Label encoder not loaded'}), 500
     except Exception as e:
-        print(f"Error during prediction: {e}")
+        print(f"🔥 Error during prediction: {e}")
         return jsonify({'error': 'Prediction failed'}), 500
 
+# 🟢 Run server
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)  # Ensure it runs on port 5000
+    app.run(debug=True, port=5000)
