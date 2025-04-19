@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import './../styles/childstyles.css';import React, { useState, useRef, useEffect } from 'react';
 import './../styles/childstyles.css';
 import characterImg from './../assets/trail2.png';
 import { Link, useNavigate } from 'react-router-dom';
