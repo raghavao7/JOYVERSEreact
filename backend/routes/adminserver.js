@@ -1,163 +1,155 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-
 const router = express.Router();
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// Admin Schema
-const AdminSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, unique: true, required: true },
-    password: { type: String, required: true },
-    profilePhoto: { type: String },
-    registeredAt: { type: Date, default: Date.now }
-});
+// Import the Admin model from models directory
+const Admin = require('../models/Admin');  // Correct the path if necessary
+const Child = require('../models/Child'); // Assuming the Child model is defined similarly
 
-const Admin = mongoose.models.Admin || mongoose.model('Admin', AdminSchema);
+// Middleware to verify JWT and role
+const authenticate = (roles) => (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token provided' });
 
-// Child Schema
-const ChildSchema = new mongoose.Schema({
-    childName: { type: String, required: true },
-    phone: { type: String, unique: true, required: true },
-    userId: { type: String, unique: true, required: true },
-    password: { type: String, required: true },
-    registeredAt: { type: Date, default: Date.now },
-    parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true },
-    isActive: { type: Boolean, default: true }
-});
-
-const Child = mongoose.models.Child || mongoose.model('Child', ChildSchema);
-
-// Middleware
-const authenticateAdmin = async (req, res, next) => {
-    const token = req.header('Authorization');
-    if (!token) return res.status(403).json({ message: 'Access denied' });
-
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.adminId = decoded.adminId;
-        next();
-    } catch (err) {
-        res.status(400).json({ message: 'Invalid token' });
-    }
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Invalid token' });
+    if (!roles.includes(user.role)) return res.status(403).json({ message: 'Unauthorized' });
+    req.user = user;
+    next();
+  });
 };
-
-// Routes
 
 // Admin Login
 router.post('/login', async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: 'Email and Password required' });
+  const { email, password } = req.body;
+  try {
+    const admin = await Admin.findOne({ email });
+    if (!admin) return res.status(401).json({ message: 'Invalid email' });
+    if (!admin.active) return res.status(403).json({ message: 'Account is disabled' });
 
-    try {
-        const admin = await Admin.findOne({ email });
-        if (!admin) return res.status(400).json({ message: 'Invalid email or password' });
+    const isMatch = await bcrypt.compare(password, admin.password);
+    if (!isMatch) return res.status(401).json({ message: 'Invalid password' });
 
-        const isMatch = await bcrypt.compare(password, admin.password);
-        if (!isMatch) return res.status(400).json({ message: 'Invalid email or password' });
-
-        const token = jwt.sign(
-            { adminId: admin._id, email: admin.email },
-            process.env.JWT_SECRET,
-            { expiresIn: '1h' }
-        );
-
-        res.json({ message: 'Login successful', token });
-    } catch (err) {
-        res.status(500).json({ message: 'Server error during login' });
-    }
+    const token = jwt.sign(
+      { id: admin._id, phone: admin.phone, role: 'admin' },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+    res.json({ message: 'Login successful', token });
+  } catch (err) {
+    console.error('❌ Admin login error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // Register Child
-router.post('/register-child', authenticateAdmin, async (req, res) => {
-    const { childName, phone, userId, password } = req.body;
-    if (!childName || !phone || !userId || !password) {
-        return res.status(400).json({ message: 'All fields are required' });
-    }
+router.post('/register-child', authenticate(['admin']), async (req, res) => {
+  const { name, email } = req.body;
+  try {
+    const existing = await Child.findOne({ email });
+    if (existing) return res.status(400).json({ message: 'Email already in use' });
 
-    try {
-        const existingChild = await Child.findOne({ $or: [{ phone }, { userId }] });
-        if (existingChild) {
-            return res.status(400).json({ message: 'Child with this phone or user ID already exists' });
-        }
+    // Generate 6-digit password (same as userId for login)
+    const password = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const child = new Child({
+      name,
+      email,
+      password: hashedPassword,
+      registeredBy: req.user.id,
+    });
+    await child.save();
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const newChild = new Child({
-            childName,
-            phone,
-            userId,
-            password: hashedPassword,
-            parentId: req.adminId
-        });
-
-        await newChild.save();
-        res.json({ message: 'Child registered successfully', child: newChild });
-    } catch (err) {
-        res.status(500).json({ message: 'Server error registering child' });
-    }
+    // Return userId (generated by pre-save hook) and password
+    res.status(201).json({
+      message: 'Child registered successfully',
+      userId: child.userId,
+      password,
+    });
+  } catch (err) {
+    console.error('❌ Register Child Error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
-// Get all children for logged-in admin
-router.get('/children', authenticateAdmin, async (req, res) => {
-    try {
-        const children = await Child.find({ parentId: req.adminId });
-        res.json(children);
-    } catch (err) {
-        res.status(500).json({ message: 'Error fetching children' });
-    }
+// Get Children Registered by Admin
+router.get('/children', authenticate(['admin']), async (req, res) => {
+  try {
+    const children = await Child.find({ registeredBy: req.user.id }, { password: 0 });
+    res.json(children);
+  } catch (err) {
+    console.error('❌ Error fetching children:', err);
+    res.status(500).json({ message: 'Server error fetching children' });
+  }
 });
 
-// Update child status
-router.patch('/child/:id/status', authenticateAdmin, async (req, res) => {
-    const { id } = req.params;
-    const { isActive } = req.body;
-
-    try {
-        const child = await Child.findOneAndUpdate(
-            { _id: id, parentId: req.adminId },
-            { isActive },
-            { new: true }
-        );
-        if (!child) return res.status(404).json({ message: 'Child not found or unauthorized' });
-
-        res.json({ message: `Child status updated to ${isActive ? 'Active' : 'Inactive'}`, child });
-    } catch (err) {
-        res.status(500).json({ message: 'Error updating child status' });
+// Toggle Child Active Status
+router.put('/child/:id/toggle', authenticate(['admin']), async (req, res) => {
+  try {
+    const child = await Child.findById(req.params.id);
+    if (!child) return res.status(404).json({ message: 'Child not found' });
+    if (child.registeredBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Unauthorized' });
     }
+    child.active = !child.active;
+    await child.save();
+    res.json({ message: `Child ${child.active ? 'enabled' : 'disabled'} successfully` });
+  } catch (err) {
+    console.error('❌ Error toggling child status:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
-// Delete child
-router.delete('/child/:id', authenticateAdmin, async (req, res) => {
-    const { id } = req.params;
-
-    try {
-        const child = await Child.findOneAndDelete({ _id: id, parentId: req.adminId });
-        if (!child) return res.status(404).json({ message: 'Child not found or unauthorized' });
-
-        res.json({ message: 'Child deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ message: 'Error deleting child' });
+// Delete Child
+router.delete('/child/:id', authenticate(['admin']), async (req, res) => {
+  try {
+    const child = await Child.findById(req.params.id);
+    if (!child) return res.status(404).json({ message: 'Child not found' });
+    if (child.registeredBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Unauthorized' });
     }
+    await Child.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Child deleted successfully' });
+  } catch (err) {
+    console.error('❌ Error deleting child:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
-// Update admin profile
-router.patch('/update-profile', authenticateAdmin, async (req, res) => {
-    const { password, profilePhoto } = req.body;
-
-    try {
-        const updateData = {};
-        if (password) updateData.password = await bcrypt.hash(password, 10);
-        if (profilePhoto) updateData.profilePhoto = profilePhoto;
-
-        const updatedAdmin = await Admin.findByIdAndUpdate(req.adminId, updateData, { new: true });
-        if (!updatedAdmin) return res.status(404).json({ message: 'Admin not found' });
-
-        res.json({ message: 'Profile updated successfully', admin: updatedAdmin });
-    } catch (err) {
-        res.status(500).json({ message: 'Error updating profile' });
+// Get Child Reports
+router.get('/child/:id/reports', authenticate(['admin']), async (req, res) => {
+  try {
+    const child = await Child.findById(req.params.id);
+    if (!child) return res.status(404).json({ message: 'Child not found' });
+    if (child.registeredBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Unauthorized' });
     }
+    res.json(child.reports);
+  } catch (err) {
+    console.error('❌ Error fetching reports:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update Child Details
+router.put('/child/:id', authenticate(['admin']), async (req, res) => {
+  const { name, email } = req.body;
+  try {
+    const child = await Child.findById(req.params.id);
+    if (!child) return res.status(404).json({ message: 'Child not found' });
+    if (child.registeredBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+    child.name = name || child.name;
+    child.email = email || child.email;
+    await child.save();
+    res.json({ message: 'Child updated successfully' });
+  } catch (err) {
+    console.error('❌ Error updating child:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 module.exports = router;

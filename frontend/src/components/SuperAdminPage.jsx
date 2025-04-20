@@ -14,6 +14,8 @@ const SuperAdminPage = () => {
     password: ''
   });
   const [message, setMessage] = useState('');
+
+  // Fetch all admins on page load (No need for two useEffect hooks for fetching)
   useEffect(() => {
     axios.get('http://localhost:3000/superadmin/admins', {
       headers: {
@@ -21,22 +23,7 @@ const SuperAdminPage = () => {
       },
     })
     .then((response) => {
-      console.log("Fetched Admins:", response.data); // <-- 👈 Add this line
-      setAdmins(response.data);
-    })
-    .catch((error) => {
-      console.error('Error fetching admins:', error);
-    });
-  }, []);
-  
-  // Fetch all admins on page load
-  useEffect(() => {
-    axios.get('http://localhost:3000/superadmin/admins', {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('superadmin_token')}`, // Make sure to use the correct token here
-      },
-    })
-    .then((response) => {
+      console.log("Fetched Admins:", response.data); // <-- Debugging line to check the response
       setAdmins(response.data);
     })
     .catch((error) => {
@@ -68,6 +55,8 @@ const SuperAdminPage = () => {
         profilePhoto: '',
         password: ''
       });
+      // Refresh the admin list
+      setAdmins((prevAdmins) => [...prevAdmins, response.data.admin]);
     })
     .catch((error) => {
       console.error('Error registering admin:', error);
@@ -76,16 +65,14 @@ const SuperAdminPage = () => {
   };
 
   // Handle Disable Admin
-  // Handle Disable Admin - Updated version
-
-const handleDisableAdmin = () => {
+  const handleDisableAdmin = () => {
     if (!phoneToDisable) {
       alert('Please enter a phone number');
       return;
     }
-  
+
     axios.put('http://localhost:3000/superadmin/disable-admin', 
-      { phone: phoneToDisable }, 
+      { phone: phoneToDisable },
       {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('superadmin_token')}`,
@@ -95,29 +82,22 @@ const handleDisableAdmin = () => {
     .then((response) => {
       alert(response.data.message);
       // Refresh the admin list
-      axios.get('http://localhost:3000/superadmin/admins', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('superadmin_token')}`,
-        },
-      })
-      .then((response) => {
-        setAdmins(response.data);
-        setPhoneToDisable('');
-      });
+      setAdmins((prevAdmins) => prevAdmins.filter(admin => admin.phone !== phoneToDisable));
+      setPhoneToDisable('');
     })
     .catch((error) => {
       console.error('Error disabling admin:', error);
       alert(error.response?.data?.message || 'Error disabling admin');
     });
   };
-  
-  // Handle Delete Admin - Updated version
+
+  // Handle Delete Admin
   const handleDeleteAdmin = () => {
     if (!phoneToDelete) {
       alert('Please enter a phone number');
       return;
     }
-  
+
     axios.delete(`http://localhost:3000/superadmin/delete-admin/${phoneToDelete}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('superadmin_token')}`,
@@ -126,21 +106,15 @@ const handleDisableAdmin = () => {
     .then((response) => {
       alert(response.data.message);
       // Refresh the admin list
-      axios.get('http://localhost:3000/superadmin/admins', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('superadmin_token')}`,
-        },
-      })
-      .then((response) => {
-        setAdmins(response.data);
-        setPhoneToDelete('');
-      });
+      setAdmins((prevAdmins) => prevAdmins.filter(admin => admin.phone !== phoneToDelete));
+      setPhoneToDelete('');
     })
     .catch((error) => {
       console.error('Error deleting admin:', error);
       alert(error.response?.data?.message || 'Error deleting admin');
     });
   };
+
   return (
     <div className="superadmin-container">
       <h1>SuperAdmin Dashboard</h1>

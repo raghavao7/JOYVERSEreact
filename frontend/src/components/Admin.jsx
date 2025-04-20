@@ -1,211 +1,388 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import './../styles/Admin.css';
-import { useHistory } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import '../styles/Admin.css';
 
-// Admin Login Component
 const Admin = () => {
-  const [admin, setAdmin] = useState(null);
+  const [isLogin, setIsLogin] = useState(true);
   const [loginData, setLoginData] = useState({ email: '', password: '' });
-  const [childData, setChildData] = useState({ name: '', age: '', adminId: '' });
-  const [profileData, setProfileData] = useState({ email: '', password: '', avatar: null });
-  const history = useHistory();
+  const [childData, setChildData] = useState({ name: '', email: '' });
+  const [children, setChildren] = useState([]);
+  const [message, setMessage] = useState('');
+  const [selectedChild, setSelectedChild] = useState(null);
+  const [reports, setReports] = useState([]);
+  const [newChildCredentials, setNewChildCredentials] = useState(null);
+  const navigate = useNavigate();
 
-  // Handle login form change
-  const handleLoginChange = (e) => {
-    setLoginData({
-      ...loginData,
-      [e.target.name]: e.target.value
-    });
+  // Validate email format
+  const validateEmail = (email) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
 
-  // Handle child registration form change
-  const handleChildChange = (e) => {
-    setChildData({
-      ...childData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  // Handle profile update form change
-  const handleProfileChange = (e) => {
-    if (e.target.name === 'avatar') {
-      setProfileData({
-        ...profileData,
-        [e.target.name]: e.target.files[0]
-      });
-    } else {
-      setProfileData({
-        ...profileData,
-        [e.target.name]: e.target.value
-      });
+  // Fetch children on dashboard load
+  useEffect(() => {
+    if (!isLogin) {
+      const token = localStorage.getItem('admin_token');
+      if (!token) {
+        setMessage('Please log in again');
+        setIsLogin(true);
+        return;
+      }
+      axios.get('http://localhost:3000/admin/children', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+        .then((response) => setChildren(response.data))
+        .catch((error) => {
+          console.error('Error fetching children:', error);
+          setMessage(error.response?.data?.message || 'Error fetching children');
+        });
     }
-  };
+  }, [isLogin]);
 
-  // Handle login submission
-  const handleLoginSubmit = async (e) => {
+  // Handle Admin Login
+  const handleLogin = (e) => {
     e.preventDefault();
-    try {
-      const res = await axios.post('/admin/login', loginData);
-      localStorage.setItem('adminToken', res.data.token); // Save token
-      setAdmin(true);
-      history.push('/admin-dashboard'); // Redirect to admin dashboard
-    } catch (error) {
-      console.error('Login failed', error);
+    if (!validateEmail(loginData.email)) {
+      setMessage('Invalid email format');
+      return;
     }
-  };
-
-  //Handle child registration
-  const handleChildRegister = async (e) => {
-    e.preventDefault();
-    try {
-      const token = localStorage.getItem('adminToken');
-      const res = await axios.post('/admin/register-child', childData, {
-        headers: { Authorization: `Bearer ${token}` }
+    axios.post('http://localhost:3000/admin/login', loginData)
+      .then((response) => {
+        localStorage.setItem('admin_token', response.data.token);
+        setIsLogin(false);
+        setMessage('Login successful');
+        setLoginData({ email: '', password: '' });
+      })
+      .catch((error) => {
+        console.error('Error logging in:', error);
+        setMessage(error.response?.data?.message || 'Login failed');
       });
-      console.log('Child registered successfully', res.data);
-    } catch (error) {
-      console.error('Child registration failed', error);
-    }
   };
 
-  //Handle profile update
-  const handleProfileUpdate = async (e) => {
+  // Handle Logout
+  const handleLogout = () => {
+    localStorage.removeItem('admin_token');
+    setIsLogin(true);
+    setMessage('Logged out successfully');
+    navigate('/admin');
+  };
+
+  // Handle Child Registration
+  const handleChildRegistration = (e) => {
     e.preventDefault();
-    try {
-      const token = localStorage.getItem('adminToken');
-      const formData = new FormData();
-      formData.append('email', profileData.email);
-      formData.append('password', profileData.password);
-      if (profileData.avatar) formData.append('avatar', profileData.avatar);
-
-      const res = await axios.patch('/admin/update-profile', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${token}`
-        }
-      });
-      console.log('Profile updated successfully', res.data);
-    } catch (error) {
-      console.error('Profile update failed', error);
+    if (!validateEmail(childData.email)) {
+      setMessage('Invalid email format');
+      return;
     }
+    const token = localStorage.getItem('admin_token');
+    if (!token) {
+      setMessage('Please log in again');
+      setIsLogin(true);
+      return;
+    }
+    axios.post('http://localhost:3000/admin/register-child', childData, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then((response) => {
+        setMessage(response.data.message);
+        setNewChildCredentials({
+          userId: response.data.userId,
+          password: response.data.password,
+        });
+        setChildData({ name: '', email: '' });
+        // Refresh children list
+        axios.get('http://localhost:3000/admin/children', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+          .then((response) => setChildren(response.data))
+          .catch((error) => {
+            console.error('Error refreshing children:', error);
+            setMessage(error.response?.data?.message || 'Error refreshing children');
+          });
+      })
+      .catch((error) => {
+        console.error('Error registering child:', error);
+        setMessage(error.response?.data?.message || 'Registration failed');
+      });
   };
 
-  //Handle theme toggle
-  const handleThemeToggle = () => {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    if (currentTheme === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'light');
-    } else {
-      document.documentElement.setAttribute('data-theme', 'dark');
+  // Toggle Child Status
+  const handleToggleChild = (id) => {
+    const token = localStorage.getItem('admin_token');
+    if (!token) {
+      setMessage('Please log in again');
+      setIsLogin(true);
+      return;
     }
+    axios.put(`http://localhost:3000/admin/child/${id}/toggle`, {}, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then((response) => {
+        setMessage(response.data.message);
+        setChildren(children.map(child =>
+          child._id === id ? { ...child, active: !child.active } : child
+        ));
+      })
+      .catch((error) => {
+        console.error('Error toggling child:', error);
+        setMessage(error.response?.data?.message || 'Error toggling child');
+      });
+  };
+
+  // Delete Child
+  const handleDeleteChild = (id) => {
+    const token = localStorage.getItem('admin_token');
+    if (!token) {
+      setMessage('Please log in again');
+      setIsLogin(true);
+      return;
+    }
+    axios.delete(`http://localhost:3000/admin/child/${id}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then((response) => {
+        setMessage(response.data.message);
+        setChildren(children.filter(child => child._id !== id));
+      })
+      .catch((error) => {
+        console.error('Error deleting child:', error);
+        setMessage(error.response?.data?.message || 'Error deleting child');
+      });
+  };
+
+  // View Child Reports
+  const handleViewReports = (id) => {
+    const token = localStorage.getItem('admin_token');
+    if (!token) {
+      setMessage('Please log in again');
+      setIsLogin(true);
+      return;
+    }
+    axios.get(`http://localhost:3000/admin/child/${id}/reports`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then((response) => {
+        setReports(response.data);
+        setSelectedChild(id);
+      })
+      .catch((error) => {
+        console.error('Error fetching reports:', error);
+        setMessage(error.response?.data?.message || 'Error fetching reports');
+      });
+  };
+
+  // Update Child
+  const handleUpdateChild = (id) => {
+    const token = localStorage.getItem('admin_token');
+    if (!token) {
+      setMessage('Please log in again');
+      setIsLogin(true);
+      return;
+    }
+    if (!validateEmail(childData.email)) {
+      setMessage('Invalid email format');
+      return;
+    }
+    axios.put(`http://localhost:3000/admin/child/${id}`, childData, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then((response) => {
+        setMessage(response.data.message);
+        setChildren(children.map(child =>
+          child._id === id ? { ...child, name: childData.name, email: childData.email } : child
+        ));
+        setChildData({ name: '', email: '' });
+      })
+      .catch((error) => {
+        console.error('Error updating child:', error);
+        setMessage(error.response?.data?.message || 'Error updating child');
+      });
+  };
+
+  // Populate child data for editing
+  const handleEditChild = (child) => {
+    setChildData({ name: child.name, email: child.email });
+    setSelectedChild(child._id);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center">
-      {!admin ? (
-        <div className="w-full max-w-md p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-          <form onSubmit={handleLoginSubmit}>
-            <h2 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-6">Admin Login</h2>
-            <div className="mb-4">
-              <label htmlFor="email" className="block text-gray-700 dark:text-white">Email</label>
-              <input
-                type="email"
-                name="email"
-                id="email"
-                value={loginData.email}
-                onChange={handleLoginChange}
-                className="w-full p-3 border border-gray-300 rounded-lg"
-                required
-              />
-            </div>
-            <div className="mb-4">
-              <label htmlFor="password" className="block text-gray-700 dark:text-white">Password</label>
-              <input
-                type="password"
-                name="password"
-                id="password"
-                value={loginData.password}
-                onChange={handleLoginChange}
-                className="w-full p-3 border border-gray-300 rounded-lg"
-                required
-              />
-            </div>
-            <button type="submit" className="w-full bg-blue-500 text-white p-3 rounded-lg">Login</button>
+    <div className="admin-container max-w-4xl mx-auto p-6 bg-gray-100 min-h-screen">
+      {isLogin ? (
+        <div className="login-form bg-white p-6 rounded shadow-md w-full max-w-md mx-auto">
+          <h2 className="text-2xl mb-4">Admin Login</h2>
+          <form onSubmit={handleLogin}>
+            <input
+              type="email"
+              placeholder="Email"
+              value={loginData.email}
+              onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
+              className="w-full p-2 mb-4 border rounded"
+              required
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={loginData.password}
+              onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+              className="w-full p-2 mb-4 border rounded"
+              required
+            />
+            <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">Login</button>
           </form>
-          <div className="mt-4 flex justify-center items-center">
-            <button onClick={handleThemeToggle} className="text-blue-500">Toggle Theme</button>
-          </div>
+          {message && <p className="mt-4 text-red-500">{message}</p>}
         </div>
       ) : (
-        <div className="w-full max-w-md p-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-          {/* Child Registration Form */}
-          <h2 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-6">Register Child</h2>
-          <form onSubmit={handleChildRegister}>
-            <div className="mb-4">
-              <label htmlFor="name" className="block text-gray-700 dark:text-white">Child's Name</label>
+        <div className="admin-dashboard">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl">Admin Dashboard</h1>
+            <button
+              onClick={handleLogout}
+              className="bg-red-500 text-white p-2 rounded"
+            >
+              Logout
+            </button>
+          </div>
+
+          {/* Child Registration */}
+          <div className="child-registration mb-6 bg-white p-6 rounded shadow-md">
+            <h2 className="text-xl mb-4">Register New Child</h2>
+            <form onSubmit={handleChildRegistration}>
               <input
                 type="text"
-                name="name"
-                id="name"
+                placeholder="Child Name"
                 value={childData.name}
-                onChange={handleChildChange}
-                className="w-full p-3 border border-gray-300 rounded-lg"
+                onChange={(e) => setChildData({ ...childData, name: e.target.value })}
+                className="w-full p-2 mb-4 border rounded"
                 required
               />
-            </div>
-            <div className="mb-4">
-              <label htmlFor="age" className="block text-gray-700 dark:text-white">Child's Age</label>
-              <input
-                type="number"
-                name="age"
-                id="age"
-                value={childData.age}
-                onChange={handleChildChange}
-                className="w-full p-3 border border-gray-300 rounded-lg"
-                required
-              />
-            </div>
-            <button type="submit" className="w-full bg-green-500 text-white p-3 rounded-lg">Register Child</button>
-          </form>
-
-          {/* Admin Profile Update Form */}
-          <h2 className="text-2xl font-bold text-center text-gray-900 dark:text-white mt-6 mb-6">Update Profile</h2>
-          <form onSubmit={handleProfileUpdate}>
-            <div className="mb-4">
-              <label htmlFor="email" className="block text-gray-700 dark:text-white">Email</label>
               <input
                 type="email"
-                name="email"
-                id="email"
-                value={profileData.email}
-                onChange={handleProfileChange}
-                className="w-full p-3 border border-gray-300 rounded-lg"
+                placeholder="Child Email"
+                value={childData.email}
+                onChange={(e) => setChildData({ ...childData, email: e.target.value })}
+                className="w-full p-2 mb-4 border rounded"
+                required
               />
+              <button type="submit" className="bg-blue-500 text-white p-2 rounded">Register Child</button>
+            </form>
+            {newChildCredentials && (
+              <div className="mt-4 p-4 bg-green-100 rounded">
+                <p>Child registered! Share these credentials:</p>
+                <p><strong>User ID:</strong> {newChildCredentials.userId}</p>
+                <p><strong>Password:</strong> {newChildCredentials.password}</p>
+              </div>
+            )}
+            {message && <p className="mt-4 text-red-500">{message}</p>}
+          </div>
+
+          {/* Child List */}
+          <div className="child-list mb-6">
+            <h2 className="text-xl mb-4">Registered Children</h2>
+            <table className="w-full bg-white shadow-md rounded">
+              <thead>
+                <tr className="bg-gray-200">
+                  <th className="p-2">Name</th>
+                  <th className="p-2">Email</th>
+                  <th className="p-2">User ID</th>
+                  <th className="p-2">Status</th>
+                  <th className="p-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {children.map((child) => (
+                  <tr key={child._id}>
+                    <td className="p-2">{child.name}</td>
+                    <td className="p-2">{child.email}</td>
+                    <td className="p-2">{child.userId}</td>
+                    <td className="p-2">{child.active ? 'Active' : 'Disabled'}</td>
+                    <td className="p-2">
+                      <button
+                        onClick={() => handleToggleChild(child._id)}
+                        className="bg-yellow-500 text-white p-1 rounded mr-2"
+                      >
+                        {child.active ? 'Disable' : 'Enable'}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteChild(child._id)}
+                        className="bg-red-500 text-white p-1 rounded mr-2"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => handleViewReports(child._id)}
+                        className="bg-green-500 text-white p-1 rounded mr-2"
+                      >
+                        View Reports
+                      </button>
+                      <button
+                        onClick={() => handleEditChild(child)}
+                        className="bg-blue-500 text-white p-1 rounded"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Update Child Form */}
+          {selectedChild && !reports.length && (
+            <div className="child-update mb-6 bg-white p-6 rounded shadow-md">
+              <h2 className="text-xl mb-4">Update Child</h2>
+              <form onSubmit={(e) => { e.preventDefault(); handleUpdateChild(selectedChild); }}>
+                <input
+                  type="text"
+                  placeholder="Child Name"
+                  value={childData.name}
+                  onChange={(e) => setChildData({ ...childData, name: e.target.value })}
+                  className="w-full p-2 mb-4 border rounded"
+                  required
+                />
+                <input
+                  type="email"
+                  placeholder="Child Email"
+                  value={childData.email}
+                  onChange={(e) => setChildData({ ...childData, email: e.target.value })}
+                  className="w-full p-2 mb-4 border rounded"
+                  required
+                />
+                <button type="submit" className="bg-blue-500 text-white p-2 rounded">Update Child</button>
+              </form>
             </div>
-            <div className="mb-4">
-              <label htmlFor="password" className="block text-gray-700 dark:text-white">Password</label>
-              <input
-                type="password"
-                name="password"
-                id="password"
-                value={profileData.password}
-                onChange={handleProfileChange}
-                className="w-full p-3 border border-gray-300 rounded-lg"
-              />
+          )}
+
+          {/* Reports */}
+          {selectedChild && reports.length > 0 && (
+            <div className="child-reports bg-white p-6 rounded shadow-md">
+              <h2 className="text-xl mb-4">Emotion Reports</h2>
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="p-2">Emotion</th>
+                    <th className="p-2">Score</th>
+                    <th className="p-2">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reports.map((report, index) => (
+                    <tr key={index}>
+                      <td className="p-2">{report.emotion}</td>
+                      <td className="p-2">{report.score}</td>
+                      <td className="p-2">{new Date(report.date).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button
+                onClick={() => setReports([])}
+                className="mt-4 bg-gray-500 text-white p-2 rounded"
+              >
+                Back to Child List
+              </button>
             </div>
-            <div className="mb-4">
-              <label htmlFor="avatar" className="block text-gray-700 dark:text-white">Profile Picture</label>
-              <input
-                type="file"
-                name="avatar"
-                id="avatar"
-                onChange={handleProfileChange}
-                className="w-full p-3 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <button type="submit" className="w-full bg-blue-500 text-white p-3 rounded-lg">Update Profile</button>
-          </form>
+          )}
         </div>
       )}
     </div>

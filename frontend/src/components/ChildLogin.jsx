@@ -1,7 +1,7 @@
-import './../styles/childstyles.css';import React, { useState, useRef, useEffect } from 'react';
-import './../styles/childstyles.css';
-import characterImg from './../assets/trail2.png';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import characterImg from '../assets/trail2.png';
+import '../styles/childstyles.css';
 
 const ChildLogin = () => {
   const [username, setUsername] = useState('');
@@ -53,11 +53,13 @@ const ChildLogin = () => {
   };
 
   useEffect(() => {
-    inputRefs.current[0].focus();
+    if (inputRefs.current[0]) {
+      inputRefs.current[0].focus();
+    }
   }, []);
 
   return (
-    <div className="login-body"> {/* ✅ background applied only here */}
+    <div className="login-body">
       <div className="container">
         <div className="login-box">
           <img src={characterImg} alt="Character" className="character" />

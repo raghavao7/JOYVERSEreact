@@ -176,25 +176,121 @@
 // server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 
- const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-require('dotenv').config();
 
-const superadminRoutes = require('./routes/superadmin');
-const adminRoutes = require('./routes/adminserver');  // Add this line to require admin server routes
 
-const app = express();
-app.use(cors());
-app.use(express.json());
 
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log("✅ MongoDB connected"))
-    .catch((err) => console.error("❌ MongoDB error:", err));
 
-// Use the routes for superadmin and admin separately
-app.use('/superadmin', superadminRoutes);  // ✅ works for superadmin routes
-app.use('/admin', adminRoutes);  // ✅ add this line for admin routes
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // const express = require('express');
+    // const mongoose = require('mongoose');
+    // const cors = require('cors');
+    // require('dotenv').config();
+
+    // const superadminRoutes = require('./routes/superadmin');
+
+    // const app = express();
+    // app.use(cors());
+    // app.use(express.json());
+
+    // mongoose.connect(process.env.MONGO_URI)
+    //     .then(() => console.log("✅ MongoDB connected"))
+    //     .catch((err) => console.error("❌ MongoDB error:", err));
+
+    // app.use('/superadmin', superadminRoutes); // ✅ works now
+
+    // const PORT = process.env.PORT || 3000;
+    // app.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    const express = require('express');
+    const mongoose = require('mongoose');
+    const dotenv = require('dotenv');
+    const helmet = require('helmet');
+    const rateLimit = require('express-rate-limit');
+    const adminRoutes = require('./routes/adminserver');
+    const childRoutes = require('./routes/childserver');
+    const superadminRoutes = require('./routes/superadmin');
+    
+    // Load environment variables
+    dotenv.config();
+    
+    const app = express();
+    
+    // Middleware
+    app.use(helmet());
+    app.use(express.json());
+    app.use(
+      rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 100, // Limit each IP to 100 requests per windowMs
+      })
+    );
+    
+    // MongoDB Connection
+    mongoose
+      .connect(process.env.MONGO_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+      })
+      .then(() => console.log('✅ Connected to MongoDB'))
+      .catch((err) => console.error('❌ MongoDB connection error:', err));
+    
+    // Routes
+    app.use('/api/admin', adminRoutes);
+    app.use('/api/child', childRoutes);
+    app.use('/api/superadmin', superadminRoutes);
+    
+    // Error Handling Middleware
+    app.use((err, req, res, next) => {
+      console.error('❌ Server Error:', err);
+      res.status(500).json({ message: 'Internal Server Error' });
+    });
+    
+    // Start Server
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
