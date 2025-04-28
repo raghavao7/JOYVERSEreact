@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="adminstyles.css">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="logo">Admin Dashboard</div>
+        
+        <ul>
+            <li class="active"><a href="#">Dashboard</a></li>
+            <li><a href="#">Users</a></li>
+            <li><a href="#">Settings</a></li>
+        </ul>
+    
+        <!-- Profile Section at Bottom -->
+        <div class="profile">
+            <img src="profile.jpg" alt="User Profile">
+            <div class="username">John Doe</div>
+            <div class="email">johndoe@example.com</div>
+        </div>
+    </div>
+    
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <nav class="top-nav">
+            <div class="search-container">
+                <input type="text" placeholder="Search..." class="search-input">
+            </div>
+            <span id="currentDate"></span>
+        </nav>
+
+        <!-- Dashboard -->
+        <div class="dashboard">
+            <h2><b>Latest Reports</b></h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>User ID</th>
+                        <th>Registered At</th>
+                    </tr>
+                </thead>
+                <tbody id="childrenList"></tbody>
+            </table>
+
+            <!-- Child Registration Form -->
+            <div class="registration">
+                <h3>Register a Child</h3>
+                <input type="text" id="childName" placeholder="Name">
+                <input type="text" id="phoneNumber" placeholder="Phone Number">
+                <button class="btn btn-primary" id="addChildBtn">Register</button>
+                <p id="generatedCode" class="text-success" style="display: none;">
+                    Generated Code: <span id="codeValue"></span>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.0.1/socket.io.js"></script>
+    <script src="adminscript.js" defer></script>
+</body>
+</html>

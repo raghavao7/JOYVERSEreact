@@ -206,7 +206,7 @@ tr:hover {
 .status {
     padding: 5px 10px;
     border-radius: 5px;
-    color: rgb(19, 16, 16);
+    color: white;
 }
 
 .status.in-progress {

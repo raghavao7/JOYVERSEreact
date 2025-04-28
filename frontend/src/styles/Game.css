@@ -23,14 +23,16 @@ body, html {
 }
 
 .background-video {
-  position: fixed; /* Fixed to the viewport */
+  position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover; /* Cover the entire viewport */
-  z-index: -1; /* Place behind other content */
+  min-width: 100%;
+  min-height: 100%;
+  object-fit: cover;
+  z-index: -1;
 }
+
+
 
 /* If you have a class to specifically target the game screen when it has an image background, you can keep this. Otherwise, it might not be necessary for just the game screen with a video. */
 .image-background .background-video {
