@@ -1,59 +1,68 @@
+// superadmin.js: Express router for superadmin-related routes, handling authentication, admin management, and file uploads
+
+// Import required modules
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
+const SuperAdmin = require('../models/SuperAdmin');
+const Admin = require('../models/Admin');
 
-// Import the Admin model
-const Admin = require('../models/Admin'); // Import the model here
-
-// Setup multer storage for file upload
+// Multer configuration for handling profile photo uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/'); // Uploads folder
+    cb(null, 'Uploads/');
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname)); // Add timestamp to filename
+    cb(null, Date.now() + path.extname(file.originalname));
   },
 });
+const upload = multer({ storage });
 
-const upload = multer({ storage: storage });
+// Initialize default SuperAdmin account if it doesn't exist
+const initSuperAdmin = async () => {
+  const existing = await SuperAdmin.findOne({ email: 'superadmin@joyverse.com' });
+  if (!existing) {
+    const hashed = await bcrypt.hash('superadmin123', 10);
+    await SuperAdmin.create({ email: 'superadmin@joyverse.com', password: hashed });
+    console.log('✅ Default SuperAdmin created');
+  }
+};
+initSuperAdmin();
 
-// Schemas
-const superAdminSchema = new mongoose.Schema({
-  email: String,
-  password: String,
-});
-const SuperAdmin = mongoose.model('SuperAdmin', superAdminSchema);
+// Middleware to authenticate SuperAdmin
+const authenticateSuperAdmin = async (req, res, next) => {
+  const token = req.header('Authorization')?.replace('Bearer ', '');
+  if (!token) return res.status(403).json({ message: 'Access denied' });
 
-// Authentication middleware
-const authenticate = (req, res, next) => {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ message: 'Invalid token' });
-    req.user = user;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const superadmin = await SuperAdmin.findOne({ email: decoded.email });
+    if (!superadmin) return res.status(401).json({ message: 'Unauthorized' });
+    req.superadmin = superadmin;
     next();
-  });
+  } catch (err) {
+    res.status(400).json({ message: 'Invalid token' });
+  }
 };
 
-// Get All Admins
-router.get('/admins', authenticate, async (req, res) => {
+// Route: Verify superadmin token
+router.get('/verify-token', authenticateSuperAdmin, async (req, res) => {
   try {
-    const admins = await Admin.find({}, { password: 0 }); // Exclude password from response
-    res.json(admins);
+    res.json({ message: 'Token is valid', email: req.superadmin.email });
   } catch (err) {
-    console.error('❌ Error fetching admins:', err);
-    res.status(500).json({ message: 'Server error fetching admins' });
+    console.error('❌ Error verifying token:', err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Super Admin Login
+// Route: SuperAdmin login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
+
   try {
     const superadmin = await SuperAdmin.findOne({ email });
     if (!superadmin) return res.status(401).json({ message: 'Invalid email' });
@@ -69,83 +78,18 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Enable Admin by phone
-router.put('/enable-admin', authenticate, async (req, res) => {
-  try {
-    const { phone } = req.body;
-
-    const admin = await Admin.findOne({ phone });
-    if (!admin) {
-      return res.status(404).json({ message: 'Admin not found' });
-    }
-
-    const updatedAdmin = await Admin.findOneAndUpdate(
-      { phone },
-      { active: true },
-      { new: true }
-    ).select('-password');
-
-    res.json({
-      message: 'Admin enabled successfully',
-      admin: updatedAdmin,
-    });
-  } catch (err) {
-    console.error('❌ Error enabling admin:', err);
-    res.status(500).json({ message: 'Server error enabling admin' });
-  }
-});
-
-// Disable Admin by phone
-router.put('/disable-admin', authenticate, async (req, res) => {
-  try {
-    const { phone } = req.body;
-
-    const admin = await Admin.findOne({ phone });
-    if (!admin) {
-      return res.status(404).json({ message: 'Admin not found' });
-    }
-
-    const updatedAdmin = await Admin.findOneAndUpdate(
-      { phone },
-      { active: !admin.active },
-      { new: true }
-    ).select('-password');
-
-    res.json({
-      message: `Admin ${updatedAdmin.active ? 'enabled' : 'disabled'} successfully`,
-      admin: updatedAdmin,
-    });
-  } catch (err) {
-    console.error('❌ Error updating admin status:', err);
-    res.status(500).json({ message: 'Server error updating admin status' });
-  }
-});
-
-// Delete Admin by phone
-router.delete('/delete-admin/:phone', authenticate, async (req, res) => {
-  try {
-    const { phone } = req.params;
-    const deletedAdmin = await Admin.findOneAndDelete({ phone });
-
-    if (!deletedAdmin) {
-      return res.status(404).json({ message: 'Admin not found' });
-    }
-
-    res.json({ message: 'Admin deleted successfully' });
-  } catch (err) {
-    console.error('❌ Error deleting admin:', err);
-    res.status(500).json({ message: 'Server error deleting admin' });
-  }
-});
-
-// Register New Admin with Profile Photo Upload
-router.post('/register-admin', authenticate, upload.single('profilePhoto'), async (req, res) => {
+// Route: Register a new admin
+router.post('/register-admin', authenticateSuperAdmin, upload.single('profilePhoto'), async (req, res) => {
   const { name, phone, email, password } = req.body;
-  const profilePhoto = req.file ? req.file.path : null; // Get the uploaded file's path
+  const profilePhoto = req.file ? req.file.path : null;
+
+  if (!name || !phone || !email || !password) {
+    return res.status(400).json({ message: 'All fields are required' });
+  }
 
   try {
-    const existing = await Admin.findOne({ phone });
-    if (existing) return res.status(400).json({ message: 'Phone already in use' });
+    const existing = await Admin.findOne({ $or: [{ phone }, { email }] });
+    if (existing) return res.status(400).json({ message: 'Phone or email already in use' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const newAdmin = new Admin({
@@ -157,10 +101,60 @@ router.post('/register-admin', authenticate, upload.single('profilePhoto'), asyn
     });
 
     await newAdmin.save();
-    res.json({ message: '✅ Admin registered successfully', phone });
+    res.json({ message: '✅ Admin registered successfully', admin: { name, phone, email } });
   } catch (err) {
     console.error('❌ Register Admin Error:', err);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Route: Get all admins
+router.get('/admins', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const admins = await Admin.find({}, { password: 0 });
+    res.json(admins);
+  } catch (err) {
+    console.error('❌ Error fetching admins:', err);
+    res.status(500).json({ message: 'Server error fetching admins' });
+  }
+});
+
+// Route: Enable or disable an admin
+router.put('/toggle-admin', authenticateSuperAdmin, async (req, res) => {
+  const { phone, active } = req.body;
+  if (!phone || active === undefined) {
+    return res.status(400).json({ message: 'Phone and active status required' });
+  }
+
+  try {
+    const admin = await Admin.findOneAndUpdate(
+      { phone },
+      { active },
+      { new: true }
+    ).select('-password');
+    if (!admin) return res.status(404).json({ message: 'Admin not found' });
+
+    res.json({
+      message: `Admin ${admin.active ? 'enabled' : 'disabled'} successfully`,
+      admin,
+    });
+  } catch (err) {
+    console.error('❌ Error updating admin status:', err);
+    res.status(500).json({ message: 'Server error updating admin status' });
+  }
+});
+
+// Route: Delete an admin
+router.delete('/delete-admin/:phone', authenticateSuperAdmin, async (req, res) => {
+  const { phone } = req.params;
+  try {
+    const deletedAdmin = await Admin.findOneAndDelete({ phone });
+    if (!deletedAdmin) return res.status(404).json({ message: 'Admin not found' });
+
+    res.json({ message: 'Admin deleted successfully' });
+  } catch (err) {
+    console.error('❌ Error deleting admin:', err);
+    res.status(500).json({ message: 'Server error deleting admin' });
   }
 });
 

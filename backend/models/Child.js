@@ -1,44 +1,26 @@
 const mongoose = require('mongoose');
 
-const ChildSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, unique: true, required: true },
-  userId: { type: String, unique: true, required: true, match: /^\d{6}$/ },
+const childSchema = new mongoose.Schema({
+  childName: { type: String, required: true },
+  phone: { type: String, unique: true, required: true },
+  userId: { type: String, unique: true, required: true },
   password: { type: String, required: true },
-  active: { type: Boolean, default: true },
-  registeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true },
   registeredAt: { type: Date, default: Date.now },
-  reports: [
-    {
-      emotion: { type: String, required: true },
-      score: { type: Number, required: true },
-      date: { type: Date, default: Date.now },
-    },
-  ],
+  parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true },
+  isActive: { type: Boolean, default: true },
+  emotionHistory: [{
+    emotion: String,
+    question: String,
+    timestamp: { type: Date, default: Date.now },
+  }],
+  gameReports: [{
+    score: Number,
+    completedAt: { type: Date, default: Date.now },
+    emotions: [String],
+    question: String,
+    isCorrect: Boolean,
+  }],
 });
 
-// Generate unique 6-digit ID
-ChildSchema.pre('save', async function (next) {
-  if (!this.userId) {
-    let isUnique = false;
-    let attempts = 0;
-    const maxAttempts = 10;
-
-    while (!isUnique && attempts < maxAttempts) {
-      const id = Math.floor(100000 + Math.random() * 900000).toString();
-      const existing = await mongoose.model('Child').findOne({ userId: id });
-      if (!existing) {
-        this.userId = id;
-        isUnique = true;
-      }
-      attempts++;
-    }
-
-    if (!isUnique) {
-      return next(new Error('Failed to generate unique user ID after multiple attempts'));
-    }
-  }
-  next();
-});
-
-module.exports = mongoose.model('Child', ChildSchema);
+// Export the model, ensuring it’s only compiled once
+module.exports = mongoose.models.Child || mongoose.model('Child', childSchema);
