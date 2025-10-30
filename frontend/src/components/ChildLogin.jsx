@@ -1,15 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { login } from '../utils/auth';
 import characterImg from '../assets/trail2.png';
 import '../styles/childstyles.css';
 
 const ChildLogin = () => {
-  const [username, setUsername] = useState('');
+  const [childName, setChildName] = useState('');
   const [digits, setDigits] = useState(Array(6).fill(''));
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const inputRefs = useRef([]);
   const navigate = useNavigate();
+
+  // Clear tokens on mount to ensure fresh login
+  useEffect(() => {
+    localStorage.removeItem('child_token');
+    localStorage.removeItem('userId');
+    inputRefs.current[0].focus();
+  }, []);
 
   const handleDigitChange = (value, index) => {
     if (!/^\d?$/.test(value)) return;
@@ -26,37 +34,26 @@ const ChildLogin = () => {
     if (e.key === 'Enter') validateLogin();
   };
 
-  const validateLogin = () => {
+  const validateLogin = async () => {
     const userId = digits.join('');
-    if (!username || userId.length !== 6) {
-      setErrorMessage('Please enter your username and 6-digit code.');
+    if (!childName || userId.length !== 6) {
+      setErrorMessage('Please enter your name and 6-digit code.');
       return;
     }
 
     setLoading(true);
-    fetch('http://localhost:3000/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: username, userId, password: userId }),
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.token) {
-          localStorage.setItem('token', data.token);
-          navigate('/game');
-        } else {
-          setErrorMessage(data.message || 'Invalid credentials!');
-        }
-      })
-      .catch(() => setErrorMessage('Failed to connect. Try again!'))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    if (inputRefs.current[0]) {
-      inputRefs.current[0].focus();
+    try {
+      await login('child', { childName, userId, password: userId });
+      console.log('Child login successful, navigating to /game');
+      navigate('/game');
+    } catch (error) {
+      setErrorMessage(error.message);
+      localStorage.removeItem('child_token');
+      localStorage.removeItem('userId');
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  };
 
   return (
     <div className="login-body">
@@ -66,10 +63,10 @@ const ChildLogin = () => {
           <h2>LOGIN</h2>
           <input
             type="text"
-            placeholder="Username"
+            placeholder="Your Name"
             className="input-box"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
+            value={childName}
+            onChange={(e) => setChildName(e.target.value)}
           />
           <div className="digit-boxes">
             {digits.map((digit, index) => (
@@ -79,9 +76,9 @@ const ChildLogin = () => {
                 maxLength="1"
                 className="digit-box"
                 value={digit}
-                ref={el => (inputRefs.current[index] = el)}
-                onChange={e => handleDigitChange(e.target.value, index)}
-                onKeyDown={e => handleKeyDown(e, index)}
+                ref={(el) => (inputRefs.current[index] = el)}
+                onChange={(e) => handleDigitChange(e.target.value, index)}
+                onKeyDown={(e) => handleKeyDown(e, index)}
               />
             ))}
           </div>
@@ -90,11 +87,15 @@ const ChildLogin = () => {
             {loading ? 'Logging in...' : 'Join the Fun!'}
           </button>
           <div className="options">
-            <label><input type="checkbox" /> Remember me</label>
+            <label>
+              <input type="checkbox" /> Remember me
+            </label>
             <a href="#">Forgot your password?</a>
           </div>
         </div>
-        <Link to="/admin" className="admin-btn">Admin</Link>
+        <Link to="/admin-login" className="admin-btn">
+          Admin Login
+        </Link>
       </div>
     </div>
   );
