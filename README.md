@@ -192,3 +192,5 @@ JOYVERSE is not just a project —
 it is a **technology-driven step towards inclusive education and better mental healthcare for children**.
 
 
+<img width="1418" height="1092" alt="joyverse" src="https://github.com/user-attachments/assets/98311792-c69b-4190-8b81-da5ffc5654eb" />
+
